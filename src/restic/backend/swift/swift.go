@@ -2,7 +2,6 @@ package swift
 
 import (
 	"io"
-	"os"
 	"path"
 	"restic"
 	"restic/debug"
@@ -25,21 +24,20 @@ type beSwift struct {
 // Open opens the swift backend at a container in region. The container is
 // created if it does not exist yet.
 func Open(cfg Config) (restic.Backend, error) {
-	debug.Log("open, config %#v", cfg)
 
 	be := &beSwift{
 		conn: &swift.Connection{
-			Domain:     os.Getenv("SWIFT_API_DOMAIN"),
-			DomainId:   os.Getenv("SWIFT_API_DOMAIN_ID"),
-			UserName:   os.Getenv("SWIFT_API_USER"),
-			ApiKey:     os.Getenv("SWIFT_API_KEY"),
-			AuthUrl:    os.Getenv("SWIFT_AUTH_URL"),
-			Region:     os.Getenv("SWIFT_REGION_NAME"),
-			Tenant:     os.Getenv("SWIFT_TENANT"),
-			TenantId:   os.Getenv("SWIFT_TENANT_ID"),
-			TrustId:    os.Getenv("SWIFT_TRUST_ID"),
-			StorageUrl: os.Getenv("SWIFT_URL"),
-			AuthToken:  os.Getenv("SWIFT_AUTH_TOKEN"),
+			Domain:     cfg.Domain,
+			DomainId:   cfg.DomainId,
+			UserName:   cfg.UserName,
+			ApiKey:     cfg.ApiKey,
+			AuthUrl:    cfg.AuthUrl,
+			Region:     cfg.Region,
+			Tenant:     cfg.Tenant,
+			TenantId:   cfg.TenantId,
+			TrustId:    cfg.TrustId,
+			StorageUrl: cfg.StorageUrl,
+			AuthToken:  cfg.AuthToken,
 		},
 		container: cfg.Container,
 		prefix:    cfg.Prefix,
@@ -59,7 +57,7 @@ func Open(cfg Config) (restic.Backend, error) {
 		// Container exists
 
 	case swift.ContainerNotFound:
-		err = be.createContainer(os.Getenv("SWIFT_DEFAULT_CONTAINER_POLICY"))
+		err = be.createContainer(cfg.DefaultContainerPolicy)
 		if err != nil {
 			return nil, errors.Wrap(err, "beSwift.createContainer")
 		}
