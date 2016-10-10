@@ -10,17 +10,19 @@ import (
 // Config contains basic configuration needed to specify swift location for an
 // swift server
 type Config struct {
-	Domain                 string
-	DomainId               string
-	UserName               string
-	ApiKey                 string
-	AuthUrl                string
-	Region                 string
-	Tenant                 string
-	TenantId               string
-	TrustId                string
-	StorageUrl             string
-	AuthToken              string
+	UserName     string
+	Domain       string
+	ApiKey       string
+	AuthUrl      string
+	Region       string
+	Tenant       string
+	TenantId     string
+	TenantDomain string
+	TrustId      string
+
+	StorageUrl string
+	AuthToken  string
+
 	Container              string
 	Prefix                 string
 	DefaultContainerPolicy string
@@ -43,23 +45,46 @@ func ParseConfig(s string) (interface{}, error) {
 	}
 
 	cfg := Config{
-		Container:              parts[1],
-		Domain:                 os.Getenv("SWIFT_API_DOMAIN"),
-		DomainId:               os.Getenv("SWIFT_API_DOMAIN_ID"),
-		UserName:               os.Getenv("SWIFT_API_USER"),
-		ApiKey:                 os.Getenv("SWIFT_API_KEY"),
-		AuthUrl:                os.Getenv("SWIFT_AUTH_URL"),
-		Region:                 os.Getenv("SWIFT_REGION_NAME"),
-		Tenant:                 os.Getenv("SWIFT_TENANT"),
-		TenantId:               os.Getenv("SWIFT_TENANT_ID"),
-		TrustId:                os.Getenv("SWIFT_TRUST_ID"),
-		StorageUrl:             os.Getenv("SWIFT_URL"),
-		AuthToken:              os.Getenv("SWIFT_AUTH_TOKEN"),
-		DefaultContainerPolicy: os.Getenv("SWIFT_DEFAULT_CONTAINER_POLICY"),
+		Container: parts[1],
 	}
 
 	if len(parts) > 2 {
 		cfg.Prefix = parts[2]
+	}
+
+	for _, val := range []struct {
+		s   *string
+		env string
+	}{
+		// v2/v3 specific
+		{&cfg.UserName, "OS_USERNAME"},
+		{&cfg.ApiKey, "OS_PASSWORD"},
+		{&cfg.Region, "OS_REGION_NAME"},
+		{&cfg.AuthUrl, "OS_AUTH_URL"},
+
+		// v3 specific
+		{&cfg.Domain, "OS_USER_DOMAIN_NAME"},
+		{&cfg.Tenant, "OS_PROJECT_NAME"},
+		{&cfg.TenantDomain, "OS_PROJECT_DOMAIN_NAME"},
+
+		// v2 specific
+		{&cfg.TenantId, "OS_TENANT_ID"},
+		{&cfg.Tenant, "OS_TENANT_NAME"},
+
+		// v1 specific
+		{&cfg.AuthUrl, "ST_AUTH"},
+		{&cfg.UserName, "ST_USER"},
+		{&cfg.ApiKey, "ST_KEY"},
+
+		// Manual authentication
+		{&cfg.StorageUrl, "OS_STORAGE_URL"},
+		{&cfg.AuthToken, "OS_AUTH_TOKEN"},
+
+		{&cfg.DefaultContainerPolicy, "SWIFT_DEFAULT_CONTAINER_POLICY"},
+	} {
+		if *val.s == "" {
+			*val.s = os.Getenv(val.env)
+		}
 	}
 
 	return cfg, nil
