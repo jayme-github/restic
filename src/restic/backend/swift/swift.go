@@ -102,6 +102,9 @@ func (be *beSwift) Location() string {
 // Load returns the data stored in the backend for h at the given offset
 // and saves it in p. Load has the same semantics as io.ReaderAt.
 func (be *beSwift) Load(h restic.Handle, p []byte, off int64) (n int, err error) {
+	if err := h.Valid(); err != nil {
+		return 0, err
+	}
 
 	debug.Log("%v, offset %v, len %v", h, off, len(p))
 	objName := be.swiftpath(h.Type, h.Name)
@@ -156,7 +159,7 @@ func (be *beSwift) Load(h restic.Handle, p []byte, off int64) (n int, err error)
 
 		nextError = io.ErrUnexpectedEOF
 
-		debug.Log("    capped buffer to %v byte", len(p))
+		debug.Log("    capped buffer to %v bytes", len(p))
 	}
 
 	_, err = obj.Seek(off, 0)
@@ -164,7 +167,7 @@ func (be *beSwift) Load(h restic.Handle, p []byte, off int64) (n int, err error)
 		return 0, errors.Wrap(err, "obj.Seek")
 	}
 
-	n, err = obj.Read(p)
+	n, err = io.ReadFull(obj, p)
 	if int64(n) == length-off && errors.Cause(err) == io.EOF {
 		err = nil
 	}
