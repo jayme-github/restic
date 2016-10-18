@@ -7,6 +7,7 @@ import (
 	"restic/debug"
 	"restic/errors"
 	"strings"
+	"time"
 
 	"github.com/ncw/swift"
 )
@@ -27,17 +28,19 @@ func Open(cfg Config) (restic.Backend, error) {
 
 	be := &beSwift{
 		conn: &swift.Connection{
-			UserName:     cfg.UserName,
-			Domain:       cfg.Domain,
-			ApiKey:       cfg.ApiKey,
-			AuthUrl:      cfg.AuthUrl,
-			Region:       cfg.Region,
-			Tenant:       cfg.Tenant,
-			TenantId:     cfg.TenantId,
-			TenantDomain: cfg.TenantDomain,
-			TrustId:      cfg.TrustId,
-			StorageUrl:   cfg.StorageUrl,
-			AuthToken:    cfg.AuthToken,
+			UserName:       cfg.UserName,
+			Domain:         cfg.Domain,
+			ApiKey:         cfg.ApiKey,
+			AuthUrl:        cfg.AuthUrl,
+			Region:         cfg.Region,
+			Tenant:         cfg.Tenant,
+			TenantId:       cfg.TenantId,
+			TenantDomain:   cfg.TenantDomain,
+			TrustId:        cfg.TrustId,
+			StorageUrl:     cfg.StorageUrl,
+			AuthToken:      cfg.AuthToken,
+			ConnectTimeout: time.Minute,
+			Timeout:        time.Minute,
 		},
 		container: cfg.Container,
 		prefix:    cfg.Prefix,
