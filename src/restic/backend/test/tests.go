@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"restic/test"
 
@@ -556,8 +557,15 @@ func TestBackend(t testing.TB) {
 
 				test.OK(t, b.Remove(h))
 
-				found, err = b.Test(h)
-				test.OK(t, err)
+				for i := 0; found && i < 10; i++ {
+					// Some backend (swift, I'm looking at you) may implement delayed
+					// removal of data. Let's wait a bit if this happens.
+					found, err = b.Test(h)
+					test.OK(t, err)
+					if found {
+						time.Sleep(100 * time.Millisecond)
+					}
+				}
 				test.Assert(t, !found, fmt.Sprintf("id %q not found after removal", id))
 			}
 		}
