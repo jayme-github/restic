@@ -20,7 +20,7 @@ func init() {
 
 	cfg := swift.Config{
 		Container:  "restictestcontainer",
-		StorageUrl: TestSwiftServer,
+		StorageURL: TestSwiftServer,
 		AuthToken:  TestSwiftToken,
 	}
 
