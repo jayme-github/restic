@@ -12,15 +12,15 @@ import (
 type Config struct {
 	UserName     string
 	Domain       string
-	ApiKey       string
-	AuthUrl      string
+	APIKey       string
+	AuthURL      string
 	Region       string
 	Tenant       string
-	TenantId     string
+	TenantID     string
 	TenantDomain string
-	TrustId      string
+	TrustID      string
 
-	StorageUrl string
+	StorageURL string
 	AuthToken  string
 
 	Container              string
@@ -28,6 +28,10 @@ type Config struct {
 	DefaultContainerPolicy string
 }
 
+// ParseConfig parses the string s and extract swift's container name and
+// prefix. The string must be of form: swift:///container/prefix.
+// In addition to parsing configuration this function extracts swift
+// endpoint configuration from environment variables.
 func ParseConfig(s string) (interface{}, error) {
 
 	url, err := url.Parse(s)
@@ -58,9 +62,9 @@ func ParseConfig(s string) (interface{}, error) {
 	}{
 		// v2/v3 specific
 		{&cfg.UserName, "OS_USERNAME"},
-		{&cfg.ApiKey, "OS_PASSWORD"},
+		{&cfg.APIKey, "OS_PASSWORD"},
 		{&cfg.Region, "OS_REGION_NAME"},
-		{&cfg.AuthUrl, "OS_AUTH_URL"},
+		{&cfg.AuthURL, "OS_AUTH_URL"},
 
 		// v3 specific
 		{&cfg.Domain, "OS_USER_DOMAIN_NAME"},
@@ -68,16 +72,16 @@ func ParseConfig(s string) (interface{}, error) {
 		{&cfg.TenantDomain, "OS_PROJECT_DOMAIN_NAME"},
 
 		// v2 specific
-		{&cfg.TenantId, "OS_TENANT_ID"},
+		{&cfg.TenantID, "OS_TENANT_ID"},
 		{&cfg.Tenant, "OS_TENANT_NAME"},
 
 		// v1 specific
-		{&cfg.AuthUrl, "ST_AUTH"},
+		{&cfg.AuthURL, "ST_AUTH"},
 		{&cfg.UserName, "ST_USER"},
-		{&cfg.ApiKey, "ST_KEY"},
+		{&cfg.APIKey, "ST_KEY"},
 
 		// Manual authentication
-		{&cfg.StorageUrl, "OS_STORAGE_URL"},
+		{&cfg.StorageURL, "OS_STORAGE_URL"},
 		{&cfg.AuthToken, "OS_AUTH_TOKEN"},
 
 		{&cfg.DefaultContainerPolicy, "SWIFT_DEFAULT_CONTAINER_POLICY"},
