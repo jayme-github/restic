@@ -4,6 +4,7 @@ import (
 	"io"
 	"path"
 	"restic"
+	"restic/backend"
 	"restic/debug"
 	"restic/errors"
 	"strings"
@@ -72,11 +73,11 @@ func Open(cfg Config) (restic.Backend, error) {
 	return be, nil
 }
 
-func (be *beSwift) swiftpath(t restic.FileType, name string) string {
-	if t == restic.ConfigFile {
-		return path.Join(be.prefix, string(t))
+func (be *beSwift) swiftpath(h restic.Handle) string {
+	if h.Type == restic.ConfigFile {
+		return path.Join(be.prefix, string(h.Type))
 	}
-	return path.Join(be.prefix, string(t), name)
+	return path.Join(be.prefix, string(h.Type), h.Name)
 }
 
 func (be *beSwift) createConnections() {
@@ -102,15 +103,24 @@ func (be *beSwift) Location() string {
 	return be.container
 }
 
-// Load returns the data stored in the backend for h at the given offset
-// and saves it in p. Load has the same semantics as io.ReaderAt.
-func (be *beSwift) Load(h restic.Handle, p []byte, off int64) (n int, err error) {
+// Load returns a reader that yields the contents of the file at h at the
+// given offset. If length is nonzero, only a portion of the file is
+// returned. rd must be closed after use.
+func (be *beSwift) Load(h restic.Handle, length int, offset int64) (io.ReadCloser, error) {
+	debug.Log("Load %v, length %v, offset %v", h, length, offset)
 	if err := h.Valid(); err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	debug.Log("%v, offset %v, len %v", h, off, len(p))
-	objName := be.swiftpath(h.Type, h.Name)
+	if offset < 0 {
+		return nil, errors.New("offset is negative")
+	}
+
+	if length < 0 {
+		return nil, errors.Errorf("invalid length %d", length)
+	}
+
+	objName := be.swiftpath(h)
 
 	<-be.connChan
 	defer func() {
@@ -120,77 +130,50 @@ func (be *beSwift) Load(h restic.Handle, p []byte, off int64) (n int, err error)
 	obj, _, err := be.conn.ObjectOpen(be.container, objName, false, nil)
 	if err != nil {
 		debug.Log("  err %v", err)
-		return 0, errors.Wrap(err, "conn.ObjectOpen")
+		return nil, errors.Wrap(err, "conn.ObjectOpen")
 	}
 
-	// make sure that the object is closed properly.
-	defer func() {
-		e := obj.Close()
-		if err == nil {
-			err = errors.Wrap(e, "obj.Close")
+	// if we're going to read the whole object, just pass it on.
+	if length == 0 {
+		debug.Log("Load %v: pass on object", h)
+		_, err = obj.Seek(offset, 0)
+		if err != nil {
+			_ = obj.Close()
+			return nil, errors.Wrap(err, "obj.Seek")
 		}
-	}()
 
-	length, err := obj.Length()
+		return obj, nil
+	}
+
+	// otherwise pass a LimitReader
+	size, err := obj.Length()
 	if err != nil {
-		return 0, errors.Wrap(err, "obj.Length")
+		return nil, errors.Wrap(err, "obj.Length")
 	}
 
-	// handle negative offsets
-	if off < 0 {
-		// if the negative offset is larger than the object itself, read from
-		// the beginning.
-		if -off > length {
-			off = 0
-		} else {
-			// otherwise compute the offset from the end of the file.
-			off = length + off
-		}
+	if offset > size {
+		_ = obj.Close()
+		return nil, errors.Errorf("offset larger than file size")
 	}
 
-	// return an error if the offset is beyond the end of the file
-	if off > length {
-		return 0, errors.Wrap(io.EOF, "")
-	}
-
-	var nextError error
-
-	// manually create an io.ErrUnexpectedEOF
-	if off+int64(len(p)) > length {
-		newlen := length - off
-		p = p[:newlen]
-
-		nextError = io.ErrUnexpectedEOF
-
-		debug.Log("    capped buffer to %v bytes", len(p))
-	}
-
-	_, err = obj.Seek(off, 0)
+	_, err = obj.Seek(offset, 0)
 	if err != nil {
-		return 0, errors.Wrap(err, "obj.Seek")
+		_ = obj.Close()
+		return nil, errors.Wrap(err, "obj.Seek")
 	}
 
-	n, err = io.ReadFull(obj, p)
-	if int64(n) == length-off && errors.Cause(err) == io.EOF {
-		err = nil
-	}
-
-	if err == nil {
-		err = nextError
-	}
-
-	return n, err
+	return backend.LimitReadCloser(obj, int64(length)), nil
 }
 
 // Save stores data in the backend at the handle.
-func (be *beSwift) Save(h restic.Handle, p []byte) (err error) {
+func (be *beSwift) Save(h restic.Handle, rd io.Reader) (err error) {
 	if err = h.Valid(); err != nil {
 		return err
 	}
 
-	debug.Log("%v with %d bytes", h, len(p))
+	debug.Log("Save %v", h)
 
-	objName := be.swiftpath(h.Type, h.Name)
+	objName := be.swiftpath(h)
 
 	// Check key does not already exist
 	switch _, _, err = be.conn.Object(be.container, objName); err {
@@ -212,10 +195,11 @@ func (be *beSwift) Save(h restic.Handle, p []byte) (err error) {
 
 	encoding := "binary/octet-stream"
 
-	debug.Log("PutObject(%v, %v, %v, %v)",
-		be.container, objName, int64(len(p)), encoding)
-	err = be.conn.ObjectPutBytes(be.container, objName, p, encoding)
-	debug.Log("%v -> %v bytes, err %#v", objName, len(p), err)
+	debug.Log("PutObject(%v, %v, %v)",
+		be.container, objName, encoding)
+	//err = be.conn.ObjectPutBytes(be.container, objName, p, encoding)
+	_, err = be.conn.ObjectPut(be.container, objName, rd, true, "", encoding, nil)
+	debug.Log("%v, err %#v", objName, err)
 
 	return errors.Wrap(err, "client.PutObject")
 }
@@ -224,7 +208,7 @@ func (be *beSwift) Save(h restic.Handle, p []byte) (err error) {
 func (be *beSwift) Stat(h restic.Handle) (bi restic.FileInfo, err error) {
 	debug.Log("%v", h)
 
-	objName := be.swiftpath(h.Type, h.Name)
+	objName := be.swiftpath(h)
 
 	obj, _, err := be.conn.Object(be.container, objName)
 	if err != nil {
@@ -236,9 +220,8 @@ func (be *beSwift) Stat(h restic.Handle) (bi restic.FileInfo, err error) {
 }
 
 // Test returns true if a blob of the given type and name exists in the backend.
-func (be *beSwift) Test(t restic.FileType, name string) (bool, error) {
-
-	objName := be.swiftpath(t, name)
+func (be *beSwift) Test(h restic.Handle) (bool, error) {
+	objName := be.swiftpath(h)
 	switch _, _, err := be.conn.Object(be.container, objName); err {
 	case nil:
 		return true, nil
@@ -252,10 +235,10 @@ func (be *beSwift) Test(t restic.FileType, name string) (bool, error) {
 }
 
 // Remove removes the blob with the given name and type.
-func (be *beSwift) Remove(t restic.FileType, name string) error {
-	objName := be.swiftpath(t, name)
+func (be *beSwift) Remove(h restic.Handle) error {
+	objName := be.swiftpath(h)
 	err := be.conn.ObjectDelete(be.container, objName)
-	debug.Log("%v %v -> err %v", t, name, err)
+	debug.Log("Remove(%v) -> err %v", h, err)
 	return errors.Wrap(err, "conn.ObjectDelete")
 }
 
@@ -266,7 +249,7 @@ func (be *beSwift) List(t restic.FileType, done <-chan struct{}) <-chan string {
 	debug.Log("listing %v", t)
 	ch := make(chan string)
 
-	prefix := be.swiftpath(t, "") + "/"
+	prefix := be.swiftpath(restic.Handle{Type: t}) + "/"
 
 	go func() {
 		defer close(ch)
@@ -301,7 +284,7 @@ func (be *beSwift) removeKeys(t restic.FileType) error {
 	done := make(chan struct{})
 	defer close(done)
 	for key := range be.List(restic.DataFile, done) {
-		err := be.Remove(restic.DataFile, key)
+		err := be.Remove(restic.Handle{Type: restic.DataFile, Name: key})
 		if err != nil {
 			return err
 		}
@@ -327,7 +310,7 @@ func (be *beSwift) Delete() error {
 		}
 	}
 
-	return be.Remove(restic.ConfigFile, "")
+	return be.Remove(restic.Handle{Type: restic.ConfigFile})
 }
 
 // Close does nothing
