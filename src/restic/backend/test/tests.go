@@ -432,6 +432,20 @@ func store(t testing.TB, b restic.Backend, tpe restic.FileType, data []byte) res
 	return h
 }
 
+func delayedRemove(b restic.Backend, h restic.Handle) error {
+	// Some backend (swift, I'm looking at you) may implement delayed
+	// removal of data. Let's wait a bit if this happens.
+	err := b.Remove(h)
+	found, err := b.Test(h)
+	for i := 0; found && i < 10; i++ {
+		found, err = b.Test(h)
+		if found {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return err
+}
+
 // TestBackend tests all functions of the backend.
 func TestBackend(t testing.TB) {
 	b := open(t)
@@ -506,7 +520,7 @@ func TestBackend(t testing.TB) {
 
 		// remove and recreate
 		h := restic.Handle{Type: tpe, Name: ts.id}
-		err = b.Remove(h)
+		err = delayedRemove(b, h)
 		test.OK(t, err)
 
 		// test that the blob is gone
@@ -555,17 +569,10 @@ func TestBackend(t testing.TB) {
 				found, err := b.Test(h)
 				test.OK(t, err)
 
-				test.OK(t, b.Remove(h))
+				test.OK(t, delayedRemove(b, h))
 
-				for i := 0; found && i < 10; i++ {
-					// Some backend (swift, I'm looking at you) may implement delayed
-					// removal of data. Let's wait a bit if this happens.
-					found, err = b.Test(h)
-					test.OK(t, err)
-					if found {
-						time.Sleep(100 * time.Millisecond)
-					}
-				}
+				found, err = b.Test(h)
+				test.OK(t, err)
 				test.Assert(t, !found, fmt.Sprintf("id %q not found after removal", id))
 			}
 		}
