@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // ForbiddenImports are the packages from the stdlib that should not be used in
@@ -59,7 +60,8 @@ type TravisEnvironment struct {
 	minioSrv     *Background
 	minioTempdir string
 
-	env map[string]string
+	swiftServer *Background
+	env         map[string]string
 }
 
 func (env *TravisEnvironment) getMinio() error {
@@ -114,7 +116,7 @@ func (env *TravisEnvironment) runMinio() error {
 	}
 
 	// start minio server
-	msg("starting minio server at %s", env.minio)
+	msg("starting minio server at %s\n", env.minio)
 
 	dir, err := ioutil.TempDir("", "minio-root")
 	if err != nil {
@@ -142,6 +144,64 @@ func (env *TravisEnvironment) runMinio() error {
 	return nil
 }
 
+func (env *TravisEnvironment) runSwift() error {
+	env.env["RESTIC_TEST_SWIFT_SERVER"] = os.Getenv("RESTIC_TEST_SWIFT_SERVER")
+
+	// Start swift server if not defined via env
+	if env.env["RESTIC_TEST_SWIFT_SERVER"] == "" {
+		msg("starting swift server via docker\n")
+		cmd := exec.Command("docker", "pull", "morrisjobke/docker-swift-onlyone")
+		cmd.Stderr = os.Stderr
+		buf, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("error pulling docker image: %v\noutput: %s\n", err, buf)
+		}
+		env.swiftServer, err = StartBackgroundCommand(nil, "docker",
+			"run", "-p", "127.0.0.1:12345:8080", "-e", "SWIFT_DEFAULT_CONTAINER=restictestcontainer",
+			"--name", "swift", "morrisjobke/docker-swift-onlyone",
+		)
+		if err != nil {
+			return fmt.Errorf("error running docker: %v", err)
+		}
+		env.env["RESTIC_TEST_SWIFT_SERVER"] = "http://127.0.0.1:12345"
+
+		msg("waiting for swift to come up...\n")
+		i := 60
+		for i > 0 {
+			resp, err := http.Get(env.env["RESTIC_TEST_SWIFT_SERVER"] + "/health")
+			if (err == nil) && (resp.StatusCode != http.StatusOK) {
+				break
+			}
+			time.Sleep(1 * time.Second)
+			i--
+		}
+		if i == 0 {
+			return fmt.Errorf("swift server did not come up in time")
+		}
+	}
+
+	msg("requesting swift storage credentials\n")
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", env.env["RESTIC_TEST_SWIFT_SERVER"]+"/auth/v1.0", nil)
+	if err != nil {
+		return fmt.Errorf("error building request: %v", err)
+	}
+	req.Header.Add("x-auth-key", "admin")
+	req.Header.Add("x-auth-user", "admin:admin")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("error connecting swift server: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Authentication request failed: %s\n", resp.Status)
+	}
+
+	env.env["RESTIC_TEST_SWIFT_STORAGE_SERVER"] = resp.Header.Get("X-Storage-Url")
+	env.env["RESTIC_TEST_SWIFT_TOKEN"] = resp.Header.Get("X-Auth-Token")
+	return nil
+}
+
 // Prepare installs dependencies and starts services in order to run the tests.
 func (env *TravisEnvironment) Prepare() error {
 	env.env = make(map[string]string)
@@ -163,6 +223,11 @@ func (env *TravisEnvironment) Prepare() error {
 	}
 	if err := env.runMinio(); err != nil {
 		return err
+	}
+	if isTravisLinux() || os.Getenv("RESTIC_TEST_SWIFT_SERVER") != "" {
+		if err := env.runSwift(); err != nil {
+			return err
+		}
 	}
 
 	if *runCrossCompile && !(runtime.Version() < "go1.7") {
@@ -224,6 +289,15 @@ func (env *TravisEnvironment) Teardown() error {
 		err := os.RemoveAll(env.minioTempdir)
 		if err != nil {
 			msg("error removing minio tempdir %v: %v\n", env.minioTempdir, err)
+		}
+	}
+	if env.swiftServer != nil {
+		msg("stopping swift server\n")
+		if env.minioSrv.Cmd.ProcessState == nil {
+			err := env.minioSrv.Cmd.Process.Kill()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error killing docker server process: %v", err)
+			}
 		}
 	}
 
@@ -524,6 +598,10 @@ func runWithEnv(env map[string]string, command string, args ...string) error {
 
 func isTravis() bool {
 	return os.Getenv("TRAVIS_BUILD_DIR") != ""
+}
+
+func isTravisLinux() bool {
+	return os.Getenv("TRAVIS_OS_NAME") == "linux"
 }
 
 func isAppveyor() bool {

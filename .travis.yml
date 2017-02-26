@@ -1,5 +1,8 @@
 language: go
-sudo: false
+sudo: required
+
+services:
+  - docker
 
 go:
   - 1.6.4
@@ -26,7 +29,9 @@ matrix:
   include:
     - os: linux
       go: 1.7.5
-      sudo: true
+      sudo: required
+      services:
+        - docker
       env:
         RESTIC_TEST_FUSE=1
   allow_failures:
