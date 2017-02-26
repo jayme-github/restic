@@ -15,6 +15,13 @@
 #
 # build the image for an older version of Go:
 #   docker build --build-arg GOVERSION=1.6.4 -t restic/test:go1.6.4 .
+#
+# run local swift server for swift integration tests:
+#   docker run -d -e SWIFT_DEFAULT_CONTAINER=restictestcontainer --name swift morrisjobke/docker-swift-onlyone
+#   SWIFT_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' swift)"
+#   docker run --rm -v $PWD:/home/travis/restic -e RESTIC_TEST_SWIFT_SERVER="http://${SWIFT_IP}:8080" \
+#     restic/test go run run_integration_tests.go -minio minio
+#   docker rm -f swift
 
 FROM ubuntu:14.04
 
@@ -53,5 +60,6 @@ RUN mkdir $HOME/bin \
 
 # set TRAVIS_BUILD_DIR for integration script
 ENV TRAVIS_BUILD_DIR $HOME/restic
+ENV TRAVIS_OS_NAME linux
 
 WORKDIR $HOME/restic

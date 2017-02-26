@@ -13,14 +13,14 @@ import (
 //go:generate go run ../test/generate_backend_tests.go
 
 func init() {
-	if TestSwiftServer == "" {
+	if TestSwiftStorageServer == "" {
 		SkipMessage = "swift test server not available"
 		return
 	}
 
 	cfg := swift.Config{
 		Container:  "restictestcontainer",
-		StorageURL: TestSwiftServer,
+		StorageURL: TestSwiftStorageServer,
 		AuthToken:  TestSwiftToken,
 	}
 
