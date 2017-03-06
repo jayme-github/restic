@@ -293,10 +293,10 @@ func (env *TravisEnvironment) Teardown() error {
 	}
 	if env.swiftServer != nil {
 		msg("stopping swift server\n")
-		if env.minioSrv.Cmd.ProcessState == nil {
-			err := env.minioSrv.Cmd.Process.Kill()
+		if env.swiftServer.Cmd.ProcessState == nil {
+			err := env.swiftServer.Cmd.Process.Kill()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error killing docker server process: %v", err)
+				fmt.Fprintf(os.Stderr, "error killing swift server process: %v", err)
 			}
 		}
 	}
